@@ -6,10 +6,18 @@ const Autenticacion = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
+    const [mostrarRegistro, setMostrarRegistro] = useState(false);
+    const [mensaje, setMensaje] = useState("");
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError("");
+
+        // Validar dominio antes de intentar login
+        if (!email.endsWith("@correounivalle.edu.co")) {
+            setError("Solo se permiten correos institucionales de Univalle");
+            return;
+        }
 
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
@@ -21,17 +29,46 @@ const Autenticacion = () => {
             return;
         }
 
-        // 🔹 Verificar dominio del correo manual
+        window.location.href = "/home";
+    };
+
+    const handleRegistro = async (e) => {
+        e.preventDefault();
+        setError("");
+        setMensaje("");
+
+        // Validar dominio
         if (!email.endsWith("@correounivalle.edu.co")) {
-            await supabase.auth.signOut();
             setError("Solo se permiten correos institucionales de Univalle");
             return;
         }
 
-        window.location.href = "/home";
+        // Validar contraseña
+        if (password.length < 6) {
+            setError("La contraseña debe tener al menos 6 caracteres");
+            return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                emailRedirectTo: `${window.location.origin}/seleccion-rol`,
+            },
+        });
+
+        if (error) {
+            setError(error.message);
+            return;
+        }
+
+        setMensaje("¡Registro exitoso! Revisa tu correo para confirmar tu cuenta.");
+        setTimeout(() => {
+            setMostrarRegistro(false);
+            setMensaje("");
+        }, 3000);
     };
 
-    // 🔹 Login con Google
     const handleGoogleLogin = async () => {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: "google",
@@ -46,7 +83,6 @@ const Autenticacion = () => {
         }
     };
 
-    // 🔹 Verificar si el usuario autenticado tiene correo Univalle
     useEffect(() => {
         const verificarCorreo = async () => {
             const {
@@ -58,7 +94,6 @@ const Autenticacion = () => {
                 if (correo.endsWith("@correounivalle.edu.co")) {
                     window.location.href = "/home";
                 } else {
-                    // ❌ Si no es correo institucional, cerrar sesión
                     await supabase.auth.signOut();
                     setError("Solo se permiten correos de @correounivalle.edu.co");
                 }
@@ -78,12 +113,12 @@ const Autenticacion = () => {
                         ¡COMIENZA TU VIAJE AQUÍ!
                     </h2>
                     <h3 className="text-sm font-bold mb-6 text-gray-800">
-                        INICIO DE SESIÓN
+                        {mostrarRegistro ? "REGISTRO" : "INICIO DE SESIÓN"}
                     </h3>
 
                     <form
                         className="w-full flex flex-col items-center space-y-3"
-                        onSubmit={handleLogin}
+                        onSubmit={mostrarRegistro ? handleRegistro : handleLogin}
                     >
                         <div className="relative w-3/4">
                             <input
@@ -110,12 +145,13 @@ const Autenticacion = () => {
                         </div>
 
                         {error && <p className="text-red-500 text-sm">{error}</p>}
+                        {mensaje && <p className="text-green-500 text-sm">{mensaje}</p>}
 
                         <button
                             type="submit"
                             className="w-3/4 bg-[#f35e5e] text-white font-semibold py-2 rounded-full hover:bg-[#e65353] transition"
                         >
-                            INGRESAR
+                            {mostrarRegistro ? "REGISTRARSE" : "INGRESAR"}
                         </button>
 
                         <div className="flex items-center my-4">
@@ -130,21 +166,50 @@ const Autenticacion = () => {
                             className="w-3/4 border text-gray-700 font-medium flex items-center justify-center gap-2 py-2 rounded-md hover:bg-gray-100 transition"
                         >
                             <FaGoogle className="text-red-500" />
-                            Inicia Sesión con Google
+                            {mostrarRegistro ? "Regístrate con Google" : "Inicia Sesión con Google"}
                         </button>
                     </form>
 
-                    <div className="mt-3 text-center text-xs">
-                        <a href="#" className="text-gray-500 hover:text-red-400">
-                            ¿Olvidaste la contraseña?
-                        </a>
-                    </div>
+                    {!mostrarRegistro && (
+                        <div className="mt-3 text-center text-xs">
+                            <a href="#" className="text-gray-500 hover:text-red-400">
+                                ¿Olvidaste la contraseña?
+                            </a>
+                        </div>
+                    )}
 
                     <div className="text-center text-xs mt-2">
-                        ¿No tienes cuenta?{" "}
-                        <a href="#" className="text-blue-600 hover:underline">
-                            Regístrate
-                        </a>
+                        {mostrarRegistro ? (
+                            <>
+                                ¿Ya tienes cuenta?{" "}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setMostrarRegistro(false);
+                                        setError("");
+                                        setMensaje("");
+                                    }}
+                                    className="text-blue-600 hover:underline"
+                                >
+                                    Inicia Sesión
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                ¿No tienes cuenta?{" "}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setMostrarRegistro(true);
+                                        setError("");
+                                        setMensaje("");
+                                    }}
+                                    className="text-blue-600 hover:underline"
+                                >
+                                    Regístrate
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
 
