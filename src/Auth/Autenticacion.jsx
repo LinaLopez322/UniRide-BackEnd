@@ -29,6 +29,19 @@ const Autenticacion = () => {
             return;
         }
 
+        // Verificar si la cuenta está eliminada
+        const { data: perfilData } = await supabase
+            .from("perfiles")
+            .select("cuenta_eliminada")
+            .eq("id", data.user.id)
+            .single();
+
+        if (perfilData?.cuenta_eliminada) {
+            await supabase.auth.signOut();
+            setError("Tu cuenta ha sido eliminada. Contacta a soporte si crees que es un error.");
+            return;
+        }
+
         window.location.href = "/home";
     };
 
