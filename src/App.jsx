@@ -4,6 +4,7 @@ import SeleccionRol from './pages/SeleccionRol'
 import RegistroConductor from './pages/RegistroConductor'
 import Home from './pages/home/Home'
 import AuthCallback from './pages/callback/AuthCallback'
+import ConfiguracionCuenta from './pages/ConfiguracionCuenta'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path='/seleccion-rol' element={<SeleccionRol/>}/>
         <Route path='/registro-conductor' element={<RegistroConductor/>}/>
         <Route path='/home' element={<Home/>}/>
+        <Route path='/configuracion' element={<ConfiguracionCuenta/>}/>
         <Route path="/auth-callback" element={<AuthCallback />} />
       </Routes>
     </BrowserRouter>
