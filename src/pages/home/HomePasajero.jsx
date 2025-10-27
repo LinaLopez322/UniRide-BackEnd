@@ -1,20 +1,35 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { supabase } from "../../SupabaseClient";
-import { FaClock, FaPlus, FaTrash, FaWhatsapp, FaPhone, FaCar, FaMapMarkerAlt, FaStar, FaRegStar, FaFilter, FaUser, FaHistory } from "react-icons/fa";
+import { supabase } from "../../SupabaseClient.js";
+import {
+  FaClock,
+  FaPlus,
+  FaTrash,
+  FaWhatsapp,
+  FaPhone,
+  FaCar,
+  FaMapMarkerAlt,
+  FaStar,
+  FaRegStar,
+  FaFilter,
+  FaUser,
+  FaHistory,
+  FaEdit,
+  FaCog,
+} from "react-icons/fa";
 
 const HomePasajero = () => {
   const navigate = useNavigate();
+
+  // ---- Estados principales (lo que ya tenías) ----
   const [user, setUser] = useState(null);
   const [perfil, setPerfil] = useState(null);
-  const [horarios, setHorarios] = useState([]);
   const [conductores, setConductores] = useState([]);
   const [conductoresFiltrados, setConductoresFiltrados] = useState([]);
   const [favoritos, setFavoritos] = useState([]);
   const [historial, setHistorial] = useState([]);
-  const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [vistaActual, setVistaActual] = useState("buscar"); // buscar, horarios, favoritos, historial
+  const [vistaActual, setVistaActual] = useState("buscar");
 
   // Filtros
   const [filtros, setFiltros] = useState({
@@ -23,23 +38,29 @@ const HomePasajero = () => {
     origen: "",
   });
 
+  // ---- Estados para horarios del pasajero (nuevos) ----
+  const [horariosPasajero, setHorariosPasajero] = useState([]);
+  const [mostrarModalHorario, setMostrarModalHorario] = useState(false);
+  const [modoEdicionHorario, setModoEdicionHorario] = useState(false);
+  const [horarioEditar, setHorarioEditar] = useState(null);
   const [nuevoHorario, setNuevoHorario] = useState({
-    dia_semana: "lunes",
+    dia_semana: "",
     hora_aproximada: "",
-    origen: "residencia",
-    destino: "universidad",
-    zona_residencia: "",
-    flexibilidad_horario: 30,
+    origen: "",
   });
 
   useEffect(() => {
     verificarAutenticacion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ------------------- AUTENTICACIÓN Y CARGA INICIAL -------------------
   const verificarAutenticacion = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         navigate("/");
         return;
@@ -47,28 +68,25 @@ const HomePasajero = () => {
 
       setUser(user);
 
-      const { data: perfilData } = await supabase
+      const { data: perfilData, error: errPerfil } = await supabase
         .from("perfiles")
         .select("*")
         .eq("id", user.id)
         .single();
 
-      if (!perfilData || perfilData.rol !== "pasajero") {
+      if (errPerfil || !perfilData || perfilData.rol !== "pasajero") {
         navigate("/");
         return;
       }
 
       setPerfil(perfilData);
-      setDatosPerfil({
-        nombre_completo: perfilData.nombre_completo || "",
-        telefono: perfilData.telefono || "",
-      });
 
+      // Cargar cosas simultáneamente
       await Promise.all([
-        cargarHorarios(user.id),
-        cargarConductores(user.id),
+        cargarConductores(),
         cargarFavoritos(user.id),
         cargarHistorial(user.id),
+        cargarHorariosPasajero(user.id),
       ]);
     } catch (error) {
       console.error("Error:", error);
@@ -77,181 +95,167 @@ const HomePasajero = () => {
     }
   };
 
-  const cargarHorarios = async (userId) => {
-    const { data } = await supabase
-      .from("horarios_pasajero")
-      .select("*")
-      .eq("pasajero_id", userId)
-      .eq("activo", true)
-      .order("dia_semana");
+  // ------------------- FUNCIONES EXISTENTES -------------------
+  const cargarConductores = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("perfiles")
+        .select(
+          `id, nombre_completo, email, telefono, foto_perfil, rol,
+           horarios_conductor!inner(
+             id, dia_semana, hora_salida, origen, destino, zona_residencia, activo
+           ),
+           vehiculos(
+             marca, modelo, color, placa, anio
+           )`
+        )
+        .eq("rol", "conductor")
+        .eq("horarios_conductor.activo", true);
 
-    if (data) setHorarios(data);
-  };
+      if (error) {
+        console.error("Error cargando conductores:", error.message);
+        setConductores([]);
+        return;
+      }
 
-  const cargarConductores = async (userId) => {
-    const { data: misHorarios } = await supabase
-      .from("horarios_pasajero")
-      .select("*")
-      .eq("pasajero_id", userId)
-      .eq("activo", true);
+      if (!data || data.length === 0) {
+        setConductores([]);
+        return;
+      }
 
-    const { data: conductoresData } = await supabase
-      .from("horarios_conductor")
-      .select(`
-        *,
-        perfiles!horarios_conductor_conductor_id_fkey (
-          id, nombre_completo, email, telefono, foto_perfil
-        ),
-        vehiculos!vehiculos_conductor_id_fkey (marca, modelo, color, placa, anio)
-      `)
-      .eq("activo", true);
+      const conductoresActivos = data.filter((c) =>
+        c.horarios_conductor?.some((h) => h.activo)
+      );
 
-    if (!conductoresData) return;
+      const conductoresFormateados = conductoresActivos.map((conductor) => ({
+        ...conductor,
+        perfiles: {
+          id: conductor.id,
+          nombre_completo: conductor.nombre_completo,
+          email: conductor.email,
+          telefono: conductor.telefono,
+          foto_perfil: conductor.foto_perfil,
+        },
+        horarios: conductor.horarios_conductor || [],
+      }));
 
-    // Encontrar coincidencias
-    const matches = [];
-    const conductoresUnicos = new Map();
-
-    misHorarios?.forEach((miHorario) => {
-      conductoresData.forEach((conductor) => {
-        if (
-          miHorario.dia_semana === conductor.dia_semana &&
-          miHorario.origen === conductor.origen &&
-          miHorario.destino === conductor.destino &&
-          coincideHorario(conductor.hora_salida, miHorario.hora_aproximada, miHorario.flexibilidad_horario)
-        ) {
-          const conductorId = conductor.perfiles.id;
-          
-          if (!conductoresUnicos.has(conductorId)) {
-            conductoresUnicos.set(conductorId, {
-              ...conductor,
-              horarios: [conductor],
-            });
-          } else {
-            conductoresUnicos.get(conductorId).horarios.push(conductor);
-          }
-        }
-      });
-    });
-
-    const conductoresArray = Array.from(conductoresUnicos.values());
-    setConductores(conductoresArray);
-    setConductoresFiltrados(conductoresArray);
-  };
-
-  const coincideHorario = (hora1, hora2, flexibilidad = 30) => {
-    const [h1, m1] = hora1.split(":").map(Number);
-    const [h2, m2] = hora2.split(":").map(Number);
-    const minutos1 = h1 * 60 + m1;
-    const minutos2 = h2 * 60 + m2;
-    return Math.abs(minutos1 - minutos2) <= flexibilidad;
+      setConductores(conductoresFormateados);
+      setConductoresFiltrados(conductoresFormateados);
+    } catch (error) {
+      console.error("Error inesperado al cargar conductores:", error);
+      setConductores([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const cargarFavoritos = async (userId) => {
-    const { data } = await supabase
-      .from("conductores_favoritos")
-      .select(`
-        *,
-        perfiles!conductores_favoritos_conductor_id_fkey (
-          id, nombre_completo, email, telefono
+    try {
+      const { data, error } = await supabase
+        .from("conductores_favoritos")
+        .select(
+          `*, perfiles!conductores_favoritos_conductor_id_fkey(
+            id, nombre_completo, email, telefono
+          )`
         )
-      `)
-      .eq("pasajero_id", userId);
+        .eq("pasajero_id", userId);
 
-    if (data) setFavoritos(data);
+      if (error) {
+        console.error("Error cargando favoritos:", error);
+        return;
+      }
+      if (data) setFavoritos(data);
+    } catch (error) {
+      console.error("Error en cargarFavoritos:", error);
+    }
   };
 
   const cargarHistorial = async (userId) => {
-    const { data } = await supabase
-      .from("historial_contactos")
-      .select(`
-        *,
-        perfiles!historial_contactos_conductor_id_fkey (
-          nombre_completo, email
+    try {
+      const { data, error } = await supabase
+        .from("historial_contactos")
+        .select(
+          `*, perfiles!historial_contactos_conductor_id_fkey(
+            nombre_completo, email, telefono
+          )`
         )
-      `)
-      .eq("pasajero_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(20);
+        .eq("pasajero_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
 
-    if (data) setHistorial(data);
-  };
-
-  const agregarHorario = async (e) => {
-    e.preventDefault();
-
-    const { error } = await supabase.from("horarios_pasajero").insert({
-      pasajero_id: user.id,
-      ...nuevoHorario,
-    });
-
-    if (error) {
-      alert("Error al agregar horario");
-      return;
+      if (error) {
+        console.error("Error cargando historial:", error);
+        return;
+      }
+      if (data) setHistorial(data);
+    } catch (error) {
+      console.error("Error en cargarHistorial:", error);
     }
-
-    setShowModal(false);
-    setNuevoHorario({
-      dia_semana: "lunes",
-      hora_aproximada: "",
-      origen: "residencia",
-      destino: "universidad",
-      zona_residencia: "",
-      flexibilidad_horario: 30,
-    });
-
-    await cargarHorarios(user.id);
-    await cargarConductores(user.id);
-  };
-
-  const eliminarHorario = async (horarioId) => {
-    if (!confirm("¿Eliminar este horario?")) return;
-
-    await supabase
-      .from("horarios_pasajero")
-      .update({ activo: false })
-      .eq("id", horarioId);
-
-    await cargarHorarios(user.id);
-    await cargarConductores(user.id);
   };
 
   const toggleFavorito = async (conductorId) => {
-    const esFavorito = favoritos.some(f => f.conductor_id === conductorId);
+    try {
+      const esFavorito = favoritos.some((f) => f.conductor_id === conductorId);
 
-    if (esFavorito) {
-      await supabase
-        .from("conductores_favoritos")
-        .delete()
-        .eq("pasajero_id", user.id)
-        .eq("conductor_id", conductorId);
-    } else {
-      await supabase
-        .from("conductores_favoritos")
-        .insert({
-          pasajero_id: user.id,
-          conductor_id: conductorId,
-        });
+      if (esFavorito) {
+        const { error } = await supabase
+          .from("conductores_favoritos")
+          .delete()
+          .eq("pasajero_id", user.id)
+          .eq("conductor_id", conductorId);
+
+        if (error) {
+          console.error("Error eliminando favorito:", error);
+          return;
+        }
+      } else {
+        const { error } = await supabase
+          .from("conductores_favoritos")
+          .insert({
+            pasajero_id: user.id,
+            conductor_id: conductorId,
+          });
+
+        if (error) {
+          console.error("Error agregando favorito:", error);
+          return;
+        }
+      }
+
+      await cargarFavoritos(user.id);
+    } catch (error) {
+      console.error("Error en toggleFavorito:", error);
     }
-
-    await cargarFavoritos(user.id);
   };
 
   const registrarContacto = async (conductorId, tipo) => {
-    await supabase.from("historial_contactos").insert({
-      pasajero_id: user.id,
-      conductor_id: conductorId,
-      tipo_contacto: tipo,
-    });
+    try {
+      const { error } = await supabase.from("historial_contactos").insert({
+        pasajero_id: user.id,
+        conductor_id: conductorId,
+        tipo_contacto: tipo,
+      });
 
-    await cargarHistorial(user.id);
+      if (error) {
+        console.error("Error registrando contacto:", error);
+      }
+    } catch (error) {
+      console.error("Error en registrarContacto:", error);
+    }
   };
 
   const contactarWhatsApp = (conductor) => {
     const telefono = conductor.perfiles.telefono;
     const nombre = conductor.perfiles.nombre_completo;
+
+    if (!telefono) {
+      alert("Este conductor no tiene número de teléfono registrado");
+      return;
+    }
+
     const mensaje = encodeURIComponent(
-      `Hola ${nombre}, vi tu horario en UniRide y me gustaría coordinar un viaje.`
+      `Hola ${nombre}, vi tu perfil en UniRide y me gustaría coordinar un viaje.`
     );
     window.open(`https://wa.me/57${telefono}?text=${mensaje}`, "_blank");
     registrarContacto(conductor.perfiles.id, "whatsapp");
@@ -261,51 +265,161 @@ const HomePasajero = () => {
     let filtrados = [...conductores];
 
     if (filtros.dia_semana) {
-      filtrados = filtrados.filter(c => 
-        c.horarios.some(h => h.dia_semana === filtros.dia_semana)
+      filtrados = filtrados.filter((c) =>
+        c.horarios.some((h) => h.dia_semana === filtros.dia_semana)
       );
     }
 
     if (filtros.zona_residencia) {
-      filtrados = filtrados.filter(c =>
-        c.horarios.some(h => 
-          h.zona_residencia?.toLowerCase().includes(filtros.zona_residencia.toLowerCase())
+      filtrados = filtrados.filter((c) =>
+        c.horarios.some((h) =>
+          h.zona_residencia
+            ?.toLowerCase()
+            .includes(filtros.zona_residencia.toLowerCase())
         )
       );
     }
 
     if (filtros.origen) {
-      filtrados = filtrados.filter(c =>
-        c.horarios.some(h => h.origen === filtros.origen)
+      filtrados = filtrados.filter((c) =>
+        c.horarios.some((h) => h.origen === filtros.origen)
       );
     }
 
     setConductoresFiltrados(filtrados);
   };
 
-  const actualizarPerfil = async (e) => {
-    e.preventDefault();
+  const cerrarSesion = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate("/");
+    } catch (error) {
+      console.error("Error cerrando sesión:", error);
+    }
+  };
 
-    const { error } = await supabase
-      .from("perfiles")
-      .update(datosPerfil)
-      .eq("id", user.id);
+  const formatearTelefono = (telefono) => {
+    if (!telefono) return "Sin teléfono";
+    const soloNumeros = telefono.replace(/\D/g, "");
+    if (soloNumeros.length === 10) {
+      return `+57 ${soloNumeros.substring(0, 3)} ${soloNumeros.substring(
+        3,
+        6
+      )} ${soloNumeros.substring(6)}`;
+    } else if (soloNumeros.length > 10) {
+      return `+${soloNumeros}`;
+    }
+    return telefono;
+  };
 
-    if (error) {
-      alert("Error al actualizar perfil");
+  // ------------------- HORARIOS DEL PASAJERO: CARGAR / CRUD -------------------
+  const cargarHorariosPasajero = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from("horarios_pasajero")
+        .select("*")
+        .eq("pasajero_id", userId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error cargando horarios del pasajero:", error);
+        setHorariosPasajero([]);
+        return;
+      }
+
+      setHorariosPasajero(data || []);
+    } catch (error) {
+      console.error("Error inesperado cargando horarios del pasajero:", error);
+      setHorariosPasajero([]);
+    }
+  };
+
+  const abrirModalNuevoHorario = () => {
+    setModoEdicionHorario(false);
+    setHorarioEditar(null);
+    setNuevoHorario({ dia_semana: "", hora_aproximada: "", origen: "" });
+    setMostrarModalHorario(true);
+  };
+
+  const guardarHorario = async () => {
+    if (
+      !nuevoHorario.dia_semana ||
+      !nuevoHorario.hora_aproximada ||
+      !nuevoHorario.origen
+    ) {
+      alert("Por favor completa todos los campos");
       return;
     }
 
-    alert("Perfil actualizado correctamente");
-    setShowPerfil(false);
-    await verificarAutenticacion();
+    const datos = {
+      pasajero_id: user.id,
+      dia_semana: nuevoHorario.dia_semana,
+      hora_aproximada: nuevoHorario.hora_aproximada,
+      origen: nuevoHorario.origen.toLowerCase(),
+      // establecemos destino opuesto por defecto (si lo desea en DB)
+      destino:
+        nuevoHorario.origen.toLowerCase() === "universidad"
+          ? "residencia"
+          : "universidad",
+      zona_residencia: perfil?.zona_residencia || "",
+      flexibilidad_horario: 30,
+    };
+
+    try {
+      if (modoEdicionHorario && horarioEditar) {
+        const { error } = await supabase
+          .from("horarios_pasajero")
+          .update(datos)
+          .eq("id", horarioEditar.id);
+
+        if (error) throw error;
+        alert("Horario actualizado correctamente");
+      } else {
+        const { error } = await supabase.from("horarios_pasajero").insert([
+          datos,
+        ]);
+        if (error) throw error;
+        alert("Horario guardado exitosamente");
+      }
+
+      setMostrarModalHorario(false);
+      setHorarioEditar(null);
+      setModoEdicionHorario(false);
+      setNuevoHorario({ dia_semana: "", hora_aproximada: "", origen: "" });
+      await cargarHorariosPasajero(user.id);
+    } catch (error) {
+      console.error("Error guardando horario pasajero:", error);
+      alert("No se pudo guardar el horario. Revisa la consola.");
+    }
   };
 
-  const cerrarSesion = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
+  const editarHorario = (h) => {
+    setModoEdicionHorario(true);
+    setHorarioEditar(h);
+    setNuevoHorario({
+      dia_semana: h.dia_semana,
+      hora_aproximada: h.hora_aproximada,
+      origen: h.origen,
+    });
+    setMostrarModalHorario(true);
   };
 
+  const eliminarHorario = async (id) => {
+    if (!window.confirm("¿Eliminar este horario?")) return;
+    try {
+      const { error } = await supabase
+        .from("horarios_pasajero")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      setHorariosPasajero((prev) => prev.filter((x) => x.id !== id));
+    } catch (error) {
+      console.error("Error eliminando horario pasajero:", error);
+      alert("No se pudo eliminar el horario.");
+    }
+  };
+
+  // ------------------- UI -------------------
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -327,10 +441,7 @@ const HomePasajero = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate("/configuracion")}
-              className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition"
-            >
+            <button className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition">
               <FaUser className="text-gray-600" />
               <span className="text-sm">{perfil?.nombre_completo || "Perfil"}</span>
             </button>
@@ -357,16 +468,6 @@ const HomePasajero = () => {
               Buscar Conductores
             </button>
             <button
-              onClick={() => setVistaActual("horarios")}
-              className={`px-4 py-3 font-medium border-b-2 transition ${
-                vistaActual === "horarios"
-                  ? "border-[#f36d6d] text-[#f36d6d]"
-                  : "border-transparent text-gray-600 hover:text-gray-800"
-              }`}
-            >
-              Mis Horarios ({horarios.length})
-            </button>
-            <button
               onClick={() => setVistaActual("favoritos")}
               className={`px-4 py-3 font-medium border-b-2 transition ${
                 vistaActual === "favoritos"
@@ -391,15 +492,16 @@ const HomePasajero = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Vista: Buscar Conductores */}
+        {/* VISTA: Buscar Conductores */}
         {vistaActual === "buscar" && (
           <div>
-            {/* Filtros */}
+            {/* filtros */}
             <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <FaFilter className="text-[#f36d6d]" />
                 <h2 className="text-xl font-bold">Filtrar Conductores</h2>
               </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <select
                   value={filtros.dia_semana}
@@ -434,6 +536,7 @@ const HomePasajero = () => {
                   <option value="universidad">Desde universidad</option>
                 </select>
               </div>
+
               <button
                 onClick={aplicarFiltros}
                 className="mt-4 w-full px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]"
@@ -442,45 +545,47 @@ const HomePasajero = () => {
               </button>
             </div>
 
-            {/* Lista de conductores */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h2 className="text-2xl font-bold mb-6">
-                Conductores Disponibles ({conductoresFiltrados.length})
-              </h2>
+            {/* Lista conductores */}
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+              <h2 className="text-2xl font-bold mb-6">Conductores Disponibles ({conductoresFiltrados.length})</h2>
 
               {conductoresFiltrados.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <FaCar className="text-6xl mx-auto mb-4 text-gray-300" />
                   <p>No hay conductores disponibles</p>
-                  <p className="text-sm">Agrega horarios para encontrar coincidencias</p>
+                  <p className="text-sm">Intenta ajustar los filtros de búsqueda</p>
                 </div>
               ) : (
                 <div className="grid gap-4">
                   {conductoresFiltrados.map((conductor, idx) => {
-                    const esFavorito = favoritos.some(f => f.conductor_id === conductor.perfiles.id);
+                    const esFavorito = favoritos.some((f) => f.conductor_id === conductor.perfiles.id);
                     const vehiculo = conductor.vehiculos?.[0];
 
                     return (
                       <div key={idx} className="border rounded-lg p-6 hover:shadow-md transition">
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex items-start gap-4">
-                            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
+                            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
                               {conductor.perfiles.foto_perfil ? (
-                                <img 
-                                  src={conductor.perfiles.foto_perfil} 
-                                  alt="Perfil"
-                                  className="w-full h-full rounded-full object-cover"
-                                />
+                                <img src={conductor.perfiles.foto_perfil} alt="Perfil" className="w-full h-full object-cover" />
                               ) : (
                                 <FaUser className="text-3xl text-gray-400" />
                               )}
                             </div>
+
                             <div>
                               <h3 className="text-lg font-bold text-gray-800">
                                 {conductor.perfiles.nombre_completo || "Conductor"}
                               </h3>
                               <p className="text-sm text-gray-600">{conductor.perfiles.email}</p>
-                              
+
+                              <div className="mt-1 flex items-center gap-2">
+                                <FaPhone className="text-green-500 text-sm" />
+                                <span className="text-sm font-medium text-gray-700">
+                                  {formatearTelefono(conductor.perfiles.telefono)}
+                                </span>
+                              </div>
+
                               {vehiculo && (
                                 <div className="mt-2 flex items-center gap-2 text-gray-700">
                                   <FaCar className="text-[#f36d6d]" />
@@ -493,19 +598,12 @@ const HomePasajero = () => {
                             </div>
                           </div>
 
-                          <button
-                            onClick={() => toggleFavorito(conductor.perfiles.id)}
-                            className="text-2xl transition"
-                          >
-                            {esFavorito ? (
-                              <FaStar className="text-yellow-500" />
-                            ) : (
-                              <FaRegStar className="text-gray-400 hover:text-yellow-500" />
-                            )}
+                          <button onClick={() => toggleFavorito(conductor.perfiles.id)} className="text-2xl transition">
+                            {esFavorito ? <FaStar className="text-yellow-500" /> : <FaRegStar className="text-gray-400 hover:text-yellow-500" />}
                           </button>
                         </div>
 
-                        {/* Horarios del conductor */}
+                        {/* horarios conductor */}
                         <div className="mb-4 space-y-2">
                           <p className="text-sm font-semibold text-gray-700">Horarios disponibles:</p>
                           {conductor.horarios.slice(0, 3).map((h, i) => (
@@ -517,25 +615,15 @@ const HomePasajero = () => {
                               <span>{h.hora_salida}</span>
                               <FaMapMarkerAlt className="text-[#f36d6d]" />
                               <span className="capitalize">{h.origen} → {h.destino}</span>
-                              {h.zona_residencia && (
-                                <span className="text-xs text-gray-500">({h.zona_residencia})</span>
-                              )}
+                              {h.zona_residencia && <span className="text-xs text-gray-500">({h.zona_residencia})</span>}
                             </div>
                           ))}
-                          {conductor.horarios.length > 3 && (
-                            <p className="text-xs text-gray-500">
-                              +{conductor.horarios.length - 3} horarios más
-                            </p>
-                          )}
+                          {conductor.horarios.length > 3 && <p className="text-xs text-gray-500">+{conductor.horarios.length - 3} horarios más</p>}
                         </div>
 
-                        {/* Botones de contacto */}
                         {conductor.perfiles.telefono && (
                           <div className="flex gap-2">
-                            <button
-                              onClick={() => contactarWhatsApp(conductor)}
-                              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
-                            >
+                            <button onClick={() => contactarWhatsApp(conductor)} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
                               <FaWhatsapp /> WhatsApp
                             </button>
                             <a
@@ -553,76 +641,51 @@ const HomePasajero = () => {
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Vista: Mis Horarios */}
-        {vistaActual === "horarios" && (
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">Mis Horarios de Búsqueda</h2>
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]"
-              >
-                <FaPlus /> Agregar Horario
-              </button>
-            </div>
-
-            {horarios.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <FaClock className="text-6xl mx-auto mb-4 text-gray-300" />
-                <p>No tienes horarios registrados</p>
-                <p className="text-sm">Agrega tus horarios para encontrar conductores</p>
+            {/* ---------------------- SECCIÓN: HORARIOS DEL PASAJERO ---------------------- */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">
+                  Tus Horarios (Pasajero)
+                </h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={abrirModalNuevoHorario}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]"
+                  >
+                    <FaPlus /> Nuevo Horario
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="grid gap-4">
-                {horarios.map((horario) => (
-                  <div key={horario.id} className="border rounded-lg p-4 hover:shadow-md transition">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
-                            {horario.dia_semana.toUpperCase()}
-                          </span>
-                          <span className="text-lg font-bold text-gray-800">
-                            {horario.hora_aproximada}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            (±{horario.flexibilidad_horario} min)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <FaMapMarkerAlt className="text-[#f36d6d]" />
-                          <span className="capitalize">{horario.origen}</span>
-                          <span>→</span>
-                          <span className="capitalize">{horario.destino}</span>
-                        </div>
-                        {horario.zona_residencia && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            Zona: {horario.zona_residencia}
-                          </p>
-                        )}
+
+              {horariosPasajero.length === 0 ? (
+                <div className="text-center py-6 text-gray-500">
+                  <p>No tienes horarios guardados.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {horariosPasajero.map((h) => (
+                    <div key={h.id} className="border rounded-lg p-4 flex justify-between items-center">
+                      <div>
+                        <p className="font-semibold capitalize">{h.dia_semana}</p>
+                        <p className="text-sm text-gray-600">{h.hora_aproximada} • Origen: <span className="font-medium">{h.origen}</span></p>
                       </div>
-                      <button
-                        onClick={() => eliminarHorario(horario.id)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <FaTrash />
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => editarHorario(h)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200"><FaEdit /></button>
+                        <button onClick={() => eliminarHorario(h.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><FaTrash /></button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Vista: Favoritos */}
+        {/* VISTA: Favoritos */}
         {vistaActual === "favoritos" && (
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-2xl font-bold mb-6">Conductores Favoritos</h2>
-
             {favoritos.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <FaStar className="text-6xl mx-auto mb-4 text-gray-300" />
@@ -635,29 +698,19 @@ const HomePasajero = () => {
                   <div key={fav.id} className="border rounded-lg p-4 hover:shadow-md transition">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h3 className="font-bold text-gray-800">
-                          {fav.perfiles.nombre_completo || "Conductor"}
-                        </h3>
+                        <h3 className="font-bold text-gray-800">{fav.perfiles.nombre_completo || "Conductor"}</h3>
                         <p className="text-sm text-gray-600">{fav.perfiles.email}</p>
-                        {fav.notas && (
-                          <p className="text-sm text-gray-500 mt-2 italic">{fav.notas}</p>
-                        )}
+                        <div className="mt-1 flex items-center gap-2">
+                          <FaPhone className="text-green-500 text-sm" />
+                          <span className="text-sm font-medium text-gray-700">{formatearTelefono(fav.perfiles.telefono)}</span>
+                        </div>
+                        {fav.notas && <p className="text-sm text-gray-500 mt-2 italic">{fav.notas}</p>}
                       </div>
-                      <button
-                        onClick={() => toggleFavorito(fav.conductor_id)}
-                        className="text-yellow-500 text-xl hover:text-gray-400"
-                      >
-                        <FaStar />
-                      </button>
+                      <button onClick={() => toggleFavorito(fav.conductor_id)} className="text-yellow-500 text-xl hover:text-gray-400"><FaStar /></button>
                     </div>
                     {fav.perfiles.telefono && (
                       <div className="flex gap-2 mt-3">
-                        <a
-                          href={`https://wa.me/57${fav.perfiles.telefono}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm"
-                        >
+                        <a href={`https://wa.me/57${fav.perfiles.telefono}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
                           <FaWhatsapp /> Contactar
                         </a>
                       </div>
@@ -669,11 +722,10 @@ const HomePasajero = () => {
           </div>
         )}
 
-        {/* Vista: Historial */}
+        {/* VISTA: Historial */}
         {vistaActual === "historial" && (
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-2xl font-bold mb-6">Historial de Contactos</h2>
-
             {historial.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <FaHistory className="text-6xl mx-auto mb-4 text-gray-300" />
@@ -686,29 +738,21 @@ const HomePasajero = () => {
                   <div key={contacto.id} className="border-l-4 border-[#f36d6d] bg-gray-50 p-4 rounded">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-semibold text-gray-800">
-                          {contacto.perfiles.nombre_completo || "Conductor"}
-                        </p>
+                        <p className="font-semibold text-gray-800">{contacto.perfiles.nombre_completo || "Conductor"}</p>
                         <p className="text-sm text-gray-600">{contacto.perfiles.email}</p>
+                        {contacto.perfiles.telefono && (
+                          <div className="mt-1 flex items-center gap-2">
+                            <FaPhone className="text-green-500 text-xs" />
+                            <span className="text-xs font-medium text-gray-700">{formatearTelefono(contacto.perfiles.telefono)}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="flex items-center gap-2 text-sm">
-                          {contacto.tipo_contacto === "whatsapp" ? (
-                            <FaWhatsapp className="text-green-500" />
-                          ) : (
-                            <FaPhone className="text-blue-500" />
-                          )}
+                          {contacto.tipo_contacto === "whatsapp" ? <FaWhatsapp className="text-green-500" /> : <FaPhone className="text-blue-500" />}
                           <span className="capitalize text-gray-600">{contacto.tipo_contacto}</span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(contacto.created_at).toLocaleDateString("es-CO", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(contacto.created_at).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
                       </div>
                     </div>
                   </div>
@@ -719,123 +763,61 @@ const HomePasajero = () => {
         )}
       </div>
 
-      {/* Modal Agregar Horario */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold mb-6">Agregar Horario de Búsqueda</h3>
-            <form onSubmit={agregarHorario} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Día de la semana
-                </label>
-                <select
-                  value={nuevoHorario.dia_semana}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, dia_semana: e.target.value })}
-                  className="w-full border rounded-lg px-4 py-2"
-                  required
-                >
-                  <option value="lunes">Lunes</option>
-                  <option value="martes">Martes</option>
-                  <option value="miercoles">Miércoles</option>
-                  <option value="jueves">Jueves</option>
-                  <option value="viernes">Viernes</option>
-                  <option value="sabado">Sábado</option>
-                  <option value="domingo">Domingo</option>
-                </select>
-              </div>
+      {/* Botón configuración (igual conductor) */}
+      <div className="fixed bottom-6 left-6">
+        <button onClick={() => navigate("/configuracion")} className="bg-gray-700 text-white p-3 rounded-full shadow-lg hover:bg-gray-800 transition">
+          <FaCog />
+        </button>
+      </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Hora aproximada
-                </label>
-                <input
-                  type="time"
-                  value={nuevoHorario.hora_aproximada}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, hora_aproximada: e.target.value })}
-                  className="w-full border rounded-lg px-4 py-2"
-                  required
-                />
-              </div>
+      {/* ----------------------- MODAL HORARIO (igual conductor) ----------------------- */}
+      {mostrarModalHorario && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-11/12 md:w-96 shadow-lg relative">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700 flex items-center gap-2">
+              <FaPlus className="text-[#f36d6d]" /> {modoEdicionHorario ? "Editar Horario" : "Nuevo Horario"}
+            </h2>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Desde
-                </label>
-                <select
-                  value={nuevoHorario.origen}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, origen: e.target.value })}
-                  className="w-full border rounded-lg px-4 py-2"
-                  required
-                >
-                  <option value="residencia">Mi residencia</option>
-                  <option value="universidad">Universidad</option>
-                </select>
-              </div>
+            <div className="grid grid-cols-1 gap-3">
+              <select
+                className="border p-2 rounded"
+                value={nuevoHorario.dia_semana}
+                onChange={(e) => setNuevoHorario({ ...nuevoHorario, dia_semana: e.target.value })}
+              >
+                <option value="">Seleccionar día</option>
+                <option value="lunes">Lunes</option>
+                <option value="martes">Martes</option>
+                <option value="miercoles">Miércoles</option>
+                <option value="jueves">Jueves</option>
+                <option value="viernes">Viernes</option>
+                <option value="sabado">Sábado</option>
+                <option value="domingo">Domingo</option>
+              </select>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Hacia
-                </label>
-                <select
-                  value={nuevoHorario.destino}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, destino: e.target.value })}
-                  className="w-full border rounded-lg px-4 py-2"
-                  required
-                >
-                  <option value="universidad">Universidad</option>
-                  <option value="residencia">Mi residencia</option>
-                </select>
-              </div>
+              <input
+                type="time"
+                className="border p-2 rounded"
+                value={nuevoHorario.hora_aproximada}
+                onChange={(e) => setNuevoHorario({ ...nuevoHorario, hora_aproximada: e.target.value })}
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Zona de residencia (opcional)
-                </label>
-                <input
-                  type="text"
-                  value={nuevoHorario.zona_residencia}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, zona_residencia: e.target.value })}
-                  placeholder="Ej: Meléndez, Ciudad Jardín"
-                  className="w-full border rounded-lg px-4 py-2"
-                />
-              </div>
+              <select
+                className="border p-2 rounded"
+                value={nuevoHorario.origen}
+                onChange={(e) => setNuevoHorario({ ...nuevoHorario, origen: e.target.value })}
+              >
+                <option value="">Seleccionar origen</option>
+                <option value="universidad">Universidad</option>
+                <option value="residencia">Residencia</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Flexibilidad de horario (minutos)
-                </label>
-                <select
-                  value={nuevoHorario.flexibilidad_horario}
-                  onChange={(e) => setNuevoHorario({ ...nuevoHorario, flexibilidad_horario: parseInt(e.target.value) })}
-                  className="w-full border rounded-lg px-4 py-2"
-                >
-                  <option value="15">15 minutos</option>
-                  <option value="30">30 minutos</option>
-                  <option value="45">45 minutos</option>
-                  <option value="60">60 minutos</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Se buscarán conductores con horarios ±{nuevoHorario.flexibilidad_horario} minutos
-                </p>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]"
-                >
-                  Guardar
-                </button>
-              </div>
-            </form>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => { setMostrarModalHorario(false); setModoEdicionHorario(false); }} className="px-4 py-2 border rounded-lg">Cancelar</button>
+              <button onClick={guardarHorario} className="px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]">
+                {modoEdicionHorario ? "Actualizar" : "Guardar"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -844,3 +826,4 @@ const HomePasajero = () => {
 };
 
 export default HomePasajero;
+
