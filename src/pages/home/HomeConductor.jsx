@@ -29,7 +29,7 @@ const HomeConductor = () => {
     const obtenerUsuario = async () => {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data?.user) {
-        navigate("/Autenticacion");
+        navigate("/");
       } else {
         setUserId(data.user.id);
       }
@@ -56,42 +56,48 @@ const HomeConductor = () => {
     }
   };
 
-  // 🔹 Guardar horario (corrige constraint)
-  const guardarHorario = async () => {
-    try {
-      if (!nuevoHorario.hora_salida) {
-        alert("Por favor selecciona una hora de salida válida");
-        return;
-      }
-
-      const { error } = await supabase.from("horarios_conductor").insert([
-        {
-          conductor_id: userId,
-          dia_semana: nuevoHorario.dia_semana.toLowerCase(),
-          hora_salida: nuevoHorario.hora_salida,
-          origen: nuevoHorario.origen.toLowerCase(),
-          destino: nuevoHorario.destino.toLowerCase(),
-          zona_residencia: nuevoHorario.zona_residencia || null,
-          cupos_disponibles: nuevoHorario.cupos_disponibles || 0,
-        },
-      ]);
-
-      if (error) throw error;
-
-      setNuevoHorario({
-        dia_semana: "",
-        hora_salida: "",
-        origen: "",
-        destino: "",
-        zona_residencia: "",
-        cupos_disponibles: "",
-      });
-      setMostrarModal(false);
-      obtenerMisHorarios();
-    } catch (error) {
-      console.error("❌ Error guardando horario:", error);
+ const guardarHorario = async () => {
+  try {
+    // Validaciones básicas
+    if (!nuevoHorario.dia_semana || !nuevoHorario.hora_salida || !nuevoHorario.origen || !nuevoHorario.destino) {
+      alert("Por favor completa todos los campos obligatorios");
+      return;
     }
-  };
+
+    // Convertir cupos a número (por si el input devuelve string)
+    const cupos = parseInt(nuevoHorario.cupos_disponibles, 10) || 0;
+
+    const { error } = await supabase.from("horarios_conductor").insert([
+      {
+        conductor_id: userId,
+        dia_semana: nuevoHorario.dia_semana.toLowerCase(),
+        hora_salida: nuevoHorario.hora_salida,
+        origen: nuevoHorario.origen.toLowerCase(),
+        destino: nuevoHorario.destino.toLowerCase(),
+        zona_residencia: nuevoHorario.zona_residencia?.trim() || null,
+        cupos_disponibles: cupos,
+      },
+    ]);
+
+    if (error) throw error;
+
+    // Limpiar formulario
+    setNuevoHorario({
+      dia_semana: "",
+      hora_salida: "",
+      origen: "",
+      destino: "",
+      zona_residencia: "",
+      cupos_disponibles: "",
+    });
+
+    setMostrarModal(false);
+    obtenerMisHorarios();
+  } catch (error) {
+    console.error("❌ Error guardando horario:", error.message || error);
+    alert("Error al guardar horario: " + (error.message || "Revisa los datos."));
+  }
+};
 
   // 🔹 Eliminar horario
   const eliminarHorario = async (id) => {
@@ -110,7 +116,7 @@ const HomeConductor = () => {
   // 🔹 Cerrar sesión
   const cerrarSesion = async () => {
     await supabase.auth.signOut();
-    navigate("/Autenticacion");
+    navigate("/");
   };
 
   return (
