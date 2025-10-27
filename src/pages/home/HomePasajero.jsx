@@ -641,44 +641,6 @@ const HomePasajero = () => {
                 </div>
               )}
             </div>
-
-            {/* ---------------------- SECCIÓN: HORARIOS DEL PASAJERO ---------------------- */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">
-                  Tus Horarios (Pasajero)
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={abrirModalNuevoHorario}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]"
-                  >
-                    <FaPlus /> Nuevo Horario
-                  </button>
-                </div>
-              </div>
-
-              {horariosPasajero.length === 0 ? (
-                <div className="text-center py-6 text-gray-500">
-                  <p>No tienes horarios guardados.</p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {horariosPasajero.map((h) => (
-                    <div key={h.id} className="border rounded-lg p-4 flex justify-between items-center">
-                      <div>
-                        <p className="font-semibold capitalize">{h.dia_semana}</p>
-                        <p className="text-sm text-gray-600">{h.hora_aproximada} • Origen: <span className="font-medium">{h.origen}</span></p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => editarHorario(h)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200"><FaEdit /></button>
-                        <button onClick={() => eliminarHorario(h.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><FaTrash /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -769,58 +731,6 @@ const HomePasajero = () => {
           <FaCog />
         </button>
       </div>
-
-      {/* ----------------------- MODAL HORARIO (igual conductor) ----------------------- */}
-      {mostrarModalHorario && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-11/12 md:w-96 shadow-lg relative">
-            <h2 className="text-xl font-semibold mb-4 text-gray-700 flex items-center gap-2">
-              <FaPlus className="text-[#f36d6d]" /> {modoEdicionHorario ? "Editar Horario" : "Nuevo Horario"}
-            </h2>
-
-            <div className="grid grid-cols-1 gap-3">
-              <select
-                className="border p-2 rounded"
-                value={nuevoHorario.dia_semana}
-                onChange={(e) => setNuevoHorario({ ...nuevoHorario, dia_semana: e.target.value })}
-              >
-                <option value="">Seleccionar día</option>
-                <option value="lunes">Lunes</option>
-                <option value="martes">Martes</option>
-                <option value="miercoles">Miércoles</option>
-                <option value="jueves">Jueves</option>
-                <option value="viernes">Viernes</option>
-                <option value="sabado">Sábado</option>
-                <option value="domingo">Domingo</option>
-              </select>
-
-              <input
-                type="time"
-                className="border p-2 rounded"
-                value={nuevoHorario.hora_aproximada}
-                onChange={(e) => setNuevoHorario({ ...nuevoHorario, hora_aproximada: e.target.value })}
-              />
-
-              <select
-                className="border p-2 rounded"
-                value={nuevoHorario.origen}
-                onChange={(e) => setNuevoHorario({ ...nuevoHorario, origen: e.target.value })}
-              >
-                <option value="">Seleccionar origen</option>
-                <option value="universidad">Universidad</option>
-                <option value="residencia">Residencia</option>
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => { setMostrarModalHorario(false); setModoEdicionHorario(false); }} className="px-4 py-2 border rounded-lg">Cancelar</button>
-              <button onClick={guardarHorario} className="px-4 py-2 bg-[#f36d6d] text-white rounded-lg hover:bg-[#e65454]">
-                {modoEdicionHorario ? "Actualizar" : "Guardar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
