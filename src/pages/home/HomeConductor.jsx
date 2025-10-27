@@ -6,221 +6,300 @@ import {
   FaPlus,
   FaTrash,
   FaCar,
-  FaUser,
-  FaMapMarkerAlt,
+  FaCog,
+  FaSignOutAlt,
 } from "react-icons/fa";
 
 const HomeConductor = () => {
   const navigate = useNavigate();
-  const [userId, setUserId] = useState(null);
-  const [perfil, setPerfil] = useState(null);
   const [misHorarios, setMisHorarios] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [nuevoHorario, setNuevoHorario] = useState({
+    dia_semana: "",
+    hora_salida: "",
+    origen: "",
+    destino: "",
+    zona_residencia: "",
+    cupos_disponibles: "",
+  });
+  const [userId, setUserId] = useState(null);
+  const [mostrarModal, setMostrarModal] = useState(false);
 
-  // ------------------- FUNCIONES -------------------
+  // 🔹 Cargar usuario
+  useEffect(() => {
+    const obtenerUsuario = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data?.user) {
+        navigate("/Autenticacion");
+      } else {
+        setUserId(data.user.id);
+      }
+    };
+    obtenerUsuario();
+  }, [navigate]);
 
-  async function obtenerMisHorarios(id) {
+  // 🔹 Cargar horarios
+  useEffect(() => {
+    if (userId) obtenerMisHorarios();
+  }, [userId]);
+
+  const obtenerMisHorarios = async () => {
     try {
       const { data, error } = await supabase
         .from("horarios_conductor")
         .select("*")
-        .eq("conductor_id", id)
-        .eq("activo", true);
+        .eq("conductor_id", userId)
+        .order("id", { ascending: true });
+      if (error) throw error;
+      setMisHorarios(data || []);
+    } catch (error) {
+      console.error("❌ Error obteniendo mis horarios:", error);
+    }
+  };
 
-      if (error) {
-        console.error("Error obteniendo mis horarios:", error);
+  // 🔹 Guardar horario (corrige constraint)
+  const guardarHorario = async () => {
+    try {
+      if (!nuevoHorario.hora_salida) {
+        alert("Por favor selecciona una hora de salida válida");
         return;
       }
 
-      setMisHorarios(data || []);
+      const { error } = await supabase.from("horarios_conductor").insert([
+        {
+          conductor_id: userId,
+          dia_semana: nuevoHorario.dia_semana.toLowerCase(),
+          hora_salida: nuevoHorario.hora_salida,
+          origen: nuevoHorario.origen.toLowerCase(),
+          destino: nuevoHorario.destino.toLowerCase(),
+          zona_residencia: nuevoHorario.zona_residencia || null,
+          cupos_disponibles: nuevoHorario.cupos_disponibles || 0,
+        },
+      ]);
+
+      if (error) throw error;
+
+      setNuevoHorario({
+        dia_semana: "",
+        hora_salida: "",
+        origen: "",
+        destino: "",
+        zona_residencia: "",
+        cupos_disponibles: "",
+      });
+      setMostrarModal(false);
+      obtenerMisHorarios();
     } catch (error) {
-      console.error("Error en obtenerMisHorarios:", error);
+      console.error("❌ Error guardando horario:", error);
     }
-  }
+  };
 
-  // ------------------- VERIFICAR AUTENTICACIÓN -------------------
-
-  useEffect(() => {
-    const verificarAutenticacion = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          navigate("/");
-          return;
-        }
-
-        setUserId(user.id);
-
-        const { data: perfilData, error: errPerfil } = await supabase
-          .from("perfiles")
-          .select("*")
-          .eq("id", user.id)
-          .single();
-
-        if (errPerfil) {
-          console.error("Error cargando perfil:", errPerfil);
-          navigate("/");
-          return;
-        }
-
-        if (!perfilData || perfilData.rol !== "conductor") {
-          navigate("/");
-          return;
-        }
-
-        setPerfil(perfilData);
-
-        await obtenerMisHorarios(user.id);
-      } catch (error) {
-        console.error("Error verificando autenticación:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    verificarAutenticacion();
-  }, [navigate]);
-
-  // ------------------- ELIMINAR HORARIO -------------------
-
+  // 🔹 Eliminar horario
   const eliminarHorario = async (id) => {
-    const { error } = await supabase
-      .from("horarios_conductor")
-      .update({ activo: false })
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error eliminando horario:", error.message);
-      return;
-    }
-
-    await obtenerMisHorarios(userId);
-  };
-
-  // ------------------- CERRAR SESIÓN -------------------
-
-  const cerrarSesion = async () => {
     try {
-      await supabase.auth.signOut();
-      navigate("/");
+      const { error } = await supabase
+        .from("horarios_conductor")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      obtenerMisHorarios();
     } catch (error) {
-      console.error("Error cerrando sesión:", error);
+      console.error("❌ Error eliminando horario:", error);
     }
   };
 
-  // ------------------- UI -------------------
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl text-gray-600">Cargando...</div>
-      </div>
-    );
-  }
+  // 🔹 Cerrar sesión
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut();
+    navigate("/Autenticacion");
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* HEADER */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <img src="/img/Logo.jpg" alt="UniRide" className="w-12 h-12" />
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">UniRide</h1>
-              <p className="text-sm text-gray-600">Modo Conductor</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <button className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition">
-              <FaUser className="text-gray-600" />
-              <span className="text-sm">
-                {perfil?.nombre_completo || "Perfil"}
-              </span>
-            </button>
-            <button
-              onClick={cerrarSesion}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-            >
-              Salir
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gray-100 p-5">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-700 flex items-center gap-2">
+          <FaCar /> Panel del Conductor
+        </h1>
+        <button
+          onClick={cerrarSesion}
+          className="bg-red-500 text-white px-3 py-1 rounded-lg shadow hover:bg-red-600 transition flex items-center gap-2"
+        >
+          <FaSignOutAlt /> Salir
+        </button>
+      </div>
 
-      {/* CONTENIDO */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold flex items-center gap-2">
-              <FaCar className="text-[#f36d6d]" /> Mis Horarios Activos
-            </h2>
-            <button
-              onClick={() => navigate("/registro-horario-conductor")}
-              className="bg-[#f36d6d] hover:bg-[#e65454] text-white px-4 py-2 rounded-lg flex items-center gap-2"
-            >
-              <FaPlus /> Nuevo Horario
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <FaClock className="text-[#f36d6d]" /> Tus horarios disponibles
-          </h3>
-
-          {misHorarios.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <FaClock className="text-6xl mx-auto mb-4 text-gray-300" />
-              <p>No tienes horarios activos</p>
-              <p className="text-sm">
-                Crea tu primer horario para empezar a recibir coincidencias
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {misHorarios.map((h) => (
-                <div
-                  key={h.id}
-                  className="border border-gray-200 rounded-lg p-6 flex justify-between items-center hover:shadow-md transition"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
-                        {(h.dia_semana || "").toString().toUpperCase()}
-                      </span>
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold">
-                        {h.hora_salida}
-                      </span>
-                    </div>
-                    <p className="text-gray-800 font-medium flex items-center gap-2">
-                      <FaMapMarkerAlt className="text-[#f36d6d]" />
-                      {h.origen} → {h.destino}
-                    </p>
-                    {h.zona_residencia && (
-                      <p className="text-sm text-gray-600 mt-1">
-                        Zona: {h.zona_residencia}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => eliminarHorario(h.id)}
-                    className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition"
-                    title="Eliminar horario"
-                  >
-                    <FaTrash size={18} />
-                  </button>
+      {/* Mis horarios */}
+      <div className="bg-white p-5 rounded-2xl shadow">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <FaClock /> Mis Horarios
+        </h2>
+        {misHorarios.length === 0 ? (
+          <p className="text-gray-500">No tienes horarios registrados.</p>
+        ) : (
+          <div className="space-y-3">
+            {misHorarios.map((horario) => (
+              <div
+                key={horario.id}
+                className="flex justify-between items-center border rounded-lg p-3 hover:bg-gray-50 transition"
+              >
+                <div>
+                  <p className="font-semibold capitalize">
+                    {horario.dia_semana} - {horario.hora_salida}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {horario.origen} → {horario.destino}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Zona: {horario.zona_residencia || "No especificada"} | Cupos:{" "}
+                    {horario.cupos_disponibles}
+                  </p>
                 </div>
-              ))}
+                <button
+                  onClick={() => eliminarHorario(horario.id)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <FaTrash />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Botón flotante para abrir modal */}
+      <button
+        onClick={() => setMostrarModal(true)}
+        className="fixed bottom-6 right-6 bg-green-600 text-white p-4 rounded-full shadow-lg hover:bg-green-700 transition"
+      >
+        <FaPlus className="text-xl" />
+      </button>
+
+      {/* Modal */}
+      {mostrarModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-11/12 md:w-1/2 p-6 relative">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">
+              Nuevo Horario
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <select
+                className="border p-2 rounded"
+                value={nuevoHorario.dia_semana}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    dia_semana: e.target.value,
+                  })
+                }
+              >
+                <option value="">Seleccionar día</option>
+                <option value="lunes">Lunes</option>
+                <option value="martes">Martes</option>
+                <option value="miércoles">Miércoles</option>
+                <option value="jueves">Jueves</option>
+                <option value="viernes">Viernes</option>
+              </select>
+
+              <input
+                type="time"
+                className="border p-2 rounded"
+                value={nuevoHorario.hora_salida}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    hora_salida: e.target.value,
+                  })
+                }
+              />
+
+              <select
+                className="border p-2 rounded"
+                value={nuevoHorario.origen}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    origen: e.target.value,
+                  })
+                }
+              >
+                <option value="">Seleccionar origen</option>
+                <option value="universidad">Universidad</option>
+                <option value="residencia">Residencia</option>
+              </select>
+
+              <select
+                className="border p-2 rounded"
+                value={nuevoHorario.destino}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    destino: e.target.value,
+                  })
+                }
+              >
+                <option value="">Seleccionar destino</option>
+                <option value="universidad">Universidad</option>
+                <option value="residencia">Residencia</option>
+              </select>
+
+              <input
+                type="text"
+                placeholder="Zona de residencia"
+                className="border p-2 rounded md:col-span-2"
+                value={nuevoHorario.zona_residencia}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    zona_residencia: e.target.value,
+                  })
+                }
+              />
+
+              <input
+                type="number"
+                placeholder="Cupos disponibles"
+                className="border p-2 rounded md:col-span-2"
+                value={nuevoHorario.cupos_disponibles}
+                onChange={(e) =>
+                  setNuevoHorario({
+                    ...nuevoHorario,
+                    cupos_disponibles: e.target.value,
+                  })
+                }
+              />
             </div>
-          )}
+
+            {/* Botones */}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setMostrarModal(false)}
+                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarHorario}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Configuración */}
+      <div className="fixed bottom-6 left-6">
+        <button
+          onClick={() => navigate("/configuracion")}
+          className="bg-gray-700 text-white p-3 rounded-full shadow-lg hover:bg-gray-800 transition"
+        >
+          <FaCog />
+        </button>
       </div>
     </div>
   );
 };
 
 export default HomeConductor;
-
